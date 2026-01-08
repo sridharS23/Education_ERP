@@ -1,0 +1,1909 @@
+# Education ERP System - Implementation Plan
+
+## Overview
+
+This document outlines the architecture and implementation plan for a **production-grade Education ERP system** designed for large educational institutions (schools, colleges, universities) with thousands of users.
+
+### Technology Stack
+
+- **Frontend**: Angular (latest) + Angular Material
+- **Backend**: .NET 10 Web API
+- **Database**: PostgreSQL 15+
+- **Authentication**: JWT (Access + Refresh Tokens)
+- **Architecture**: Clean Architecture + Domain-Driven Design (DDD)
+- **Principles**: SOLID, Security-First, Scalability
+
+---
+
+## Future-Proofing & Extensibility Strategy
+
+> [!TIP]
+> **Built for Evolution**
+> This architecture is designed with future updates in mind. You can add new modules, features, and integrations without disrupting existing functionality.
+
+### 1. Modular Architecture Benefits
+
+The Clean Architecture approach provides natural extension points:
+
+- **Add New Modules**: Create new feature folders in Application layer without touching existing code
+- **Swap Implementations**: Replace infrastructure services (email, storage, payment) without changing business logic
+- **Database Changes**: Use EF Core migrations for version-controlled schema evolution
+- **API Versioning**: Support multiple API versions simultaneously for backward compatibility
+
+### 2. Extension Mechanisms
+
+#### **Plugin Architecture**
+```csharp
+// Future modules can be added as plugins
+public interface IModulePlugin
+{
+    string ModuleName { get; }
+    void RegisterServices(IServiceCollection services);
+    void ConfigureRoutes(IEndpointRouteBuilder endpoints);
+}
+
+// Example: Add Library Management module later
+public class LibraryManagementPlugin : IModulePlugin
+{
+    public string ModuleName => "LibraryManagement";
+    // Implementation...
+}
+```
+
+#### **Feature Flags**
+```csharp
+// Enable/disable features without code changes
+public class FeatureFlags
+{
+    public bool EnableOnlineExams { get; set; }
+    public bool EnableBiometricAttendance { get; set; }
+    public bool EnableAIGrading { get; set; }
+    public bool EnableBlockchainCertificates { get; set; }
+}
+```
+
+#### **API Versioning**
+```csharp
+// Support multiple API versions
+[ApiVersion("1.0")]
+[ApiVersion("2.0")]
+[Route("api/v{version:apiVersion}/[controller]")]
+public class StudentsController : ControllerBase
+{
+    [HttpGet]
+    [MapToApiVersion("1.0")]
+    public async Task<IActionResult> GetStudentsV1() { }
+    
+    [HttpGet]
+    [MapToApiVersion("2.0")]
+    public async Task<IActionResult> GetStudentsV2() { }
+}
+```
+
+### 3. Database Extensibility
+
+#### **Flexible Schema Design**
+- **JSONB Columns**: Store dynamic attributes without schema changes
+  ```sql
+  ALTER TABLE students ADD COLUMN custom_fields JSONB;
+  ```
+- **Metadata Tables**: Add configurable fields per institution
+  ```sql
+  CREATE TABLE custom_field_definitions (
+      field_id UUID PRIMARY KEY,
+      entity_type VARCHAR(50),
+      field_name VARCHAR(100),
+      field_type VARCHAR(20),
+      validation_rules JSONB
+  );
+  ```
+
+#### **Migration Strategy**
+```bash
+# Version-controlled migrations
+dotnet ef migrations add AddLibraryModule
+dotnet ef database update
+
+# Rollback capability
+dotnet ef database update PreviousMigration
+```
+
+### 4. Frontend Extensibility
+
+#### **Lazy-Loaded Modules**
+```typescript
+// Add new modules without rebuilding entire app
+const routes: Routes = [
+  {
+    path: 'library',
+    loadChildren: () => import('./features/library/library.module')
+      .then(m => m.LibraryModule)
+  },
+  {
+    path: 'hostel',
+    loadChildren: () => import('./features/hostel/hostel.module')
+      .then(m => m.HostelModule)
+  }
+];
+```
+
+#### **Dynamic Menu System**
+```typescript
+// Menu items configured from backend
+export interface MenuItem {
+  label: string;
+  route: string;
+  icon: string;
+  permissions: string[];
+  children?: MenuItem[];
+}
+
+// Load menu based on user permissions
+this.menuService.getMenuForUser(userId).subscribe(menu => {
+  this.menuItems = menu;
+});
+```
+
+### 5. Integration Points
+
+#### **Webhook System**
+```csharp
+// Allow external systems to subscribe to events
+public interface IWebhookService
+{
+    Task PublishEvent(string eventType, object payload);
+}
+
+// Example: Notify external LMS when student enrolls
+await _webhookService.PublishEvent("student.enrolled", new {
+    StudentId = student.Id,
+    CourseId = enrollment.CourseId
+});
+```
+
+#### **REST API + GraphQL Support**
+```csharp
+// Future: Add GraphQL for flexible data fetching
+[HttpPost("graphql")]
+public async Task<IActionResult> GraphQL([FromBody] GraphQLQuery query)
+{
+    var result = await _graphQLExecutor.ExecuteAsync(query);
+    return Ok(result);
+}
+```
+
+### 6. Scalability Patterns
+
+#### **Microservices Ready**
+The modular structure allows future migration to microservices:
+- **Authentication Service** (already isolated)
+- **Academic Service** (Students, Courses, Exams)
+- **Finance Service** (Fees, Payments)
+- **Notification Service** (Email, SMS, Push)
+
+#### **Caching Strategy**
+```csharp
+// Add caching layer without changing business logic
+public class CachedStudentRepository : IStudentRepository
+{
+    private readonly IStudentRepository _inner;
+    private readonly IDistributedCache _cache;
+    
+    public async Task<Student> GetByIdAsync(Guid id)
+    {
+        var cached = await _cache.GetAsync($"student:{id}");
+        if (cached != null) return Deserialize(cached);
+        
+        var student = await _inner.GetByIdAsync(id);
+        await _cache.SetAsync($"student:{id}", Serialize(student));
+        return student;
+    }
+}
+```
+
+#### **Message Queue Integration**
+```csharp
+// Process heavy operations asynchronously
+public interface IMessagePublisher
+{
+    Task PublishAsync<T>(string queue, T message);
+}
+
+// Example: Generate certificates in background
+await _messagePublisher.PublishAsync("certificate-generation", new {
+    StudentId = studentId,
+    CourseId = courseId
+});
+```
+
+### 7. Configuration Management
+
+#### **Environment-Based Settings**
+```json
+// appsettings.Development.json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Host=localhost;Database=erp_dev"
+  },
+  "Features": {
+    "EnableOnlineExams": true,
+    "EnableAIGrading": false
+  }
+}
+
+// appsettings.Production.json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Host=prod-db;Database=erp_prod"
+  },
+  "Features": {
+    "EnableOnlineExams": true,
+    "EnableAIGrading": true
+  }
+}
+```
+
+#### **External Configuration**
+```csharp
+// Load configuration from Azure App Configuration, AWS Parameter Store, etc.
+builder.Configuration.AddAzureAppConfiguration(options =>
+{
+    options.Connect(connectionString)
+           .ConfigureRefresh(refresh =>
+           {
+               refresh.Register("FeatureFlags:*", refreshAll: true);
+           });
+});
+```
+
+### 8. Testing Strategy for Updates
+
+```csharp
+// Contract tests ensure backward compatibility
+public class StudentApiContractTests
+{
+    [Fact]
+    public async Task GetStudent_ReturnsExpectedSchema()
+    {
+        var response = await _client.GetAsync("/api/v1/students/123");
+        var student = await response.Content.ReadAsAsync<StudentDto>();
+        
+        // Ensure existing fields are present
+        Assert.NotNull(student.Id);
+        Assert.NotNull(student.Email);
+        // New fields are optional
+    }
+}
+```
+
+### 9. Future Module Examples
+
+The architecture easily supports adding:
+
+- **Library Management**: Books, borrowing, fines
+- **Hostel Management**: Room allocation, mess fees
+- **Transport Management**: Bus routes, fees
+- **HR Management**: Staff payroll, leave
+- **Inventory Management**: Lab equipment, supplies
+- **Alumni Management**: Alumni database, events
+- **Online Learning**: Video lectures, assignments
+- **Mobile App**: React Native/Flutter with same API
+- **AI/ML Features**: Predictive analytics, chatbot
+- **Blockchain**: Immutable certificates
+
+### 10. Upgrade Path
+
+```mermaid
+graph LR
+    A[Version 1.0<br/>Core Modules] --> B[Version 1.5<br/>Add Library]
+    B --> C[Version 2.0<br/>Add Online Exams]
+    C --> D[Version 2.5<br/>Add AI Features]
+    D --> E[Version 3.0<br/>Microservices]
+    
+    style A fill:#e1f5ff
+    style B fill:#b3e5fc
+    style C fill:#81d4fa
+    style D fill:#4fc3f7
+    style E fill:#29b6f6
+```
+
+**Key Principles for Updates:**
+1. **Never break existing APIs** - Use versioning
+2. **Database migrations are reversible** - Always test rollback
+3. **Feature flags for gradual rollout** - Enable for subset of users first
+4. **Comprehensive testing** - Unit, integration, contract tests
+5. **Documentation updates** - Keep API docs in sync with code
+
+---
+
+## User Review Required
+
+> [!IMPORTANT] > **Scope Confirmation**
+> This is a comprehensive enterprise system with 7 major modules. The complete implementation will include:
+>
+> - 40+ database tables with triggers and stored procedures
+> - 100+ API endpoints across all modules
+> - 50+ Angular components with lazy loading
+> - Full authentication, authorization, and audit logging
+> - Automated workflows using PostgreSQL triggers and background jobs
+> - Payment gateway integration
+> - Reporting and analytics dashboards
+>
+> **Estimated Development Time**: This is a multi-week project for a production system.
+>
+> Would you like me to:
+>
+> 1. **Proceed with full implementation** (module by module, starting with core architecture)
+> 2. **Start with a specific module** (e.g., Authentication first, then expand)
+> 3. **Create a working prototype** with core features, then expand incrementally
+
+> [!WARNING] > **Database Design Decision**
+> The system will use **PostgreSQL triggers** for automated workflows (grade calculation, certificate generation, fee reminders). Alternative approaches include:
+>
+> - **Domain Events** (.NET MediatR pattern) - Better testability, more maintainable
+> - **Background Jobs** (Hangfire/Quartz) - Better for complex workflows
+> - **Hybrid Approach** - Triggers for data integrity, events for business logic
+>
+> **Recommendation**: Use triggers for data integrity constraints and domain events for business workflows. This provides better maintainability and testability.
+
+---
+
+## System Architecture
+
+### 1. High-Level Architecture
+
+```mermaid
+graph TB
+    subgraph "Client Layer"
+        A[Angular SPA]
+        A1[Admin Dashboard]
+        A2[Faculty Dashboard]
+        A3[Student Dashboard]
+        A4[Parent Dashboard]
+    end
+
+    subgraph "API Gateway Layer"
+        B[.NET 10 Web API]
+        B1[JWT Middleware]
+        B2[Exception Handler]
+        B3[Request Validation]
+    end
+
+    subgraph "Application Layer"
+        C1[Auth Services]
+        C2[Academic Services]
+        C3[Finance Services]
+        C4[Workflow Services]
+    end
+
+    subgraph "Domain Layer"
+        D1[Domain Models]
+        D2[Business Rules]
+        D3[Domain Events]
+        D4[Specifications]
+    end
+
+    subgraph "Infrastructure Layer"
+        E1[EF Core Repository]
+        E2[PostgreSQL]
+        E3[Background Jobs]
+        E4[Email Service]
+        E5[Payment Gateway]
+        E6[File Storage]
+    end
+
+    subgraph "Cross-Cutting Concerns"
+        F1[Logging - Serilog]
+        F2[Caching - Redis]
+        F3[Monitoring]
+    end
+
+    A --> B
+    B --> C1
+    B --> C2
+    B --> C3
+    B --> C4
+    C1 --> D1
+    C2 --> D2
+    C3 --> D3
+    C4 --> D4
+    D1 --> E1
+    D2 --> E1
+    E1 --> E2
+    C4 --> E3
+    C2 --> E4
+    C3 --> E5
+    B -.-> F1
+    C1 -.-> F2
+```
+
+### 2. Clean Architecture Layers
+
+#### **Presentation Layer** (API Controllers)
+
+- **Responsibility**: HTTP request/response handling, routing, model binding
+- **Dependencies**: Application Layer only
+- **Contains**: Controllers, DTOs, Filters, Middleware
+
+#### **Application Layer** (Use Cases)
+
+- **Responsibility**: Orchestrate business workflows, coordinate domain objects
+- **Dependencies**: Domain Layer only
+- **Contains**: Services, Commands/Queries (CQRS), DTOs, Validators, Interfaces
+
+#### **Domain Layer** (Business Logic)
+
+- **Responsibility**: Core business rules, entities, value objects
+- **Dependencies**: None (pure business logic)
+- **Contains**: Entities, Aggregates, Domain Events, Specifications, Exceptions
+
+#### **Infrastructure Layer** (External Concerns)
+
+- **Responsibility**: Data access, external services, file I/O
+- **Dependencies**: Application + Domain Layers
+- **Contains**: EF Core DbContext, Repositories, Email, Payment Gateway, File Storage
+
+---
+
+## Database Design
+
+### Core Schema Overview
+
+```mermaid
+erDiagram
+    Users ||--o{ UserRoles : has
+    Roles ||--o{ UserRoles : assigned
+    Roles ||--o{ RolePermissions : has
+    Permissions ||--o{ RolePermissions : granted
+
+    Users ||--o| Students : "is a"
+    Users ||--o| Faculty : "is a"
+    Users ||--o| Parents : "is a"
+
+    Students ||--o{ Enrollments : enrolls
+    Courses ||--o{ Enrollments : has
+    Courses ||--o{ Subjects : contains
+
+    Faculty ||--o{ FacultySubjects : teaches
+    Subjects ||--o{ FacultySubjects : taught_by
+
+    Students ||--o{ Attendance : records
+    Subjects ||--o{ Attendance : for
+
+    Students ||--o{ ExamResults : takes
+    Exams ||--o{ ExamResults : has
+    Subjects ||--o{ Exams : for
+
+    Students ||--o{ FeeRecords : owes
+    Students ||--o{ Payments : makes
+    FeeRecords ||--o{ Payments : settles
+
+    Students ||--o{ Certificates : earns
+
+    Users ||--o{ AuditLogs : generates
+```
+
+### Detailed Table Specifications
+
+#### **1. Authentication & Authorization Tables**
+
+**Users Table**
+
+```sql
+CREATE TABLE users (
+    user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(500) NOT NULL,
+    first_name VARCHAR(100) NOT NULL,
+    last_name VARCHAR(100) NOT NULL,
+    phone_number VARCHAR(20),
+    is_active BOOLEAN DEFAULT true,
+    is_email_verified BOOLEAN DEFAULT false,
+    email_verification_token VARCHAR(500),
+    password_reset_token VARCHAR(500),
+    password_reset_expires TIMESTAMP,
+    last_login_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by UUID,
+    updated_by UUID
+);
+
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_active ON users(is_active);
+```
+
+**Roles Table**
+
+```sql
+CREATE TABLE roles (
+    role_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    role_name VARCHAR(50) UNIQUE NOT NULL,
+    description VARCHAR(255),
+    is_system_role BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Seed system roles
+INSERT INTO roles (role_name, description, is_system_role) VALUES
+('Admin', 'System Administrator', true),
+('Faculty', 'Teaching Staff', true),
+('Student', 'Enrolled Student', true),
+('Parent', 'Student Guardian', true);
+```
+
+**UserRoles Table**
+
+```sql
+CREATE TABLE user_roles (
+    user_role_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    role_id UUID NOT NULL REFERENCES roles(role_id) ON DELETE CASCADE,
+    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    assigned_by UUID REFERENCES users(user_id),
+    UNIQUE(user_id, role_id)
+);
+
+CREATE INDEX idx_user_roles_user ON user_roles(user_id);
+CREATE INDEX idx_user_roles_role ON user_roles(role_id);
+```
+
+**Permissions Table**
+
+```sql
+CREATE TABLE permissions (
+    permission_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    permission_name VARCHAR(100) UNIQUE NOT NULL,
+    resource VARCHAR(50) NOT NULL,
+    action VARCHAR(50) NOT NULL,
+    description VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Example permissions
+INSERT INTO permissions (permission_name, resource, action, description) VALUES
+('students.create', 'students', 'create', 'Create new students'),
+('students.read', 'students', 'read', 'View student information'),
+('students.update', 'students', 'update', 'Update student information'),
+('students.delete', 'students', 'delete', 'Delete students'),
+('fees.manage', 'fees', 'manage', 'Manage fee structures'),
+('attendance.mark', 'attendance', 'create', 'Mark attendance');
+```
+
+**RolePermissions Table**
+
+```sql
+CREATE TABLE role_permissions (
+    role_permission_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    role_id UUID NOT NULL REFERENCES roles(role_id) ON DELETE CASCADE,
+    permission_id UUID NOT NULL REFERENCES permissions(permission_id) ON DELETE CASCADE,
+    granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(role_id, permission_id)
+);
+
+CREATE INDEX idx_role_permissions_role ON role_permissions(role_id);
+```
+
+**RefreshTokens Table**
+
+```sql
+CREATE TABLE refresh_tokens (
+    token_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    token VARCHAR(500) UNIQUE NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    revoked_at TIMESTAMP,
+    replaced_by_token VARCHAR(500),
+    is_revoked BOOLEAN DEFAULT false,
+    created_by_ip VARCHAR(45)
+);
+
+CREATE INDEX idx_refresh_tokens_user ON refresh_tokens(user_id);
+CREATE INDEX idx_refresh_tokens_token ON refresh_tokens(token);
+CREATE INDEX idx_refresh_tokens_expires ON refresh_tokens(expires_at);
+```
+
+**AuditLogs Table**
+
+```sql
+CREATE TABLE audit_logs (
+    audit_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(user_id),
+    action VARCHAR(100) NOT NULL,
+    entity_type VARCHAR(100),
+    entity_id UUID,
+    old_values JSONB,
+    new_values JSONB,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_audit_logs_user ON audit_logs(user_id);
+CREATE INDEX idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
+CREATE INDEX idx_audit_logs_timestamp ON audit_logs(timestamp);
+```
+
+#### **2. Academic Management Tables**
+
+**Students Table**
+
+```sql
+CREATE TABLE students (
+    student_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID UNIQUE NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    admission_number VARCHAR(50) UNIQUE NOT NULL,
+    admission_date DATE NOT NULL,
+    date_of_birth DATE NOT NULL,
+    gender VARCHAR(10),
+    blood_group VARCHAR(5),
+    address TEXT,
+    city VARCHAR(100),
+    state VARCHAR(100),
+    postal_code VARCHAR(20),
+    country VARCHAR(100) DEFAULT 'India',
+    emergency_contact_name VARCHAR(200),
+    emergency_contact_phone VARCHAR(20),
+    enrollment_status VARCHAR(20) DEFAULT 'Pending',
+    academic_year VARCHAR(10),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_students_admission ON students(admission_number);
+CREATE INDEX idx_students_status ON students(enrollment_status);
+CREATE INDEX idx_students_year ON students(academic_year);
+```
+
+**Parents Table**
+
+```sql
+CREATE TABLE parents (
+    parent_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID UNIQUE NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    relationship VARCHAR(20) NOT NULL,
+    occupation VARCHAR(100),
+    annual_income DECIMAL(15,2),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**StudentParents Table**
+
+```sql
+CREATE TABLE student_parents (
+    student_parent_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    student_id UUID NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+    parent_id UUID NOT NULL REFERENCES parents(parent_id) ON DELETE CASCADE,
+    is_primary_contact BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(student_id, parent_id)
+);
+
+CREATE INDEX idx_student_parents_student ON student_parents(student_id);
+CREATE INDEX idx_student_parents_parent ON student_parents(parent_id);
+```
+
+**Faculty Table**
+
+```sql
+CREATE TABLE faculty (
+    faculty_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID UNIQUE NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    employee_id VARCHAR(50) UNIQUE NOT NULL,
+    department VARCHAR(100),
+    designation VARCHAR(100),
+    qualification VARCHAR(200),
+    specialization VARCHAR(200),
+    date_of_joining DATE NOT NULL,
+    employment_type VARCHAR(20),
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_faculty_employee ON faculty(employee_id);
+CREATE INDEX idx_faculty_department ON faculty(department);
+```
+
+**Courses Table**
+
+```sql
+CREATE TABLE courses (
+    course_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    course_code VARCHAR(20) UNIQUE NOT NULL,
+    course_name VARCHAR(200) NOT NULL,
+    description TEXT,
+    duration_years INTEGER NOT NULL,
+    total_semesters INTEGER NOT NULL,
+    department VARCHAR(100),
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_courses_code ON courses(course_code);
+CREATE INDEX idx_courses_active ON courses(is_active);
+```
+
+**Subjects Table**
+
+```sql
+CREATE TABLE subjects (
+    subject_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    subject_code VARCHAR(20) UNIQUE NOT NULL,
+    subject_name VARCHAR(200) NOT NULL,
+    description TEXT,
+    credits INTEGER NOT NULL,
+    course_id UUID NOT NULL REFERENCES courses(course_id) ON DELETE CASCADE,
+    semester INTEGER NOT NULL,
+    is_elective BOOLEAN DEFAULT false,
+    max_marks INTEGER DEFAULT 100,
+    passing_marks INTEGER DEFAULT 40,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_subjects_code ON subjects(subject_code);
+CREATE INDEX idx_subjects_course ON subjects(course_id);
+CREATE INDEX idx_subjects_semester ON subjects(semester);
+```
+
+**Enrollments Table**
+
+```sql
+CREATE TABLE enrollments (
+    enrollment_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    student_id UUID NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+    course_id UUID NOT NULL REFERENCES courses(course_id) ON DELETE CASCADE,
+    semester INTEGER NOT NULL,
+    academic_year VARCHAR(10) NOT NULL,
+    enrollment_date DATE NOT NULL,
+    status VARCHAR(20) DEFAULT 'Active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(student_id, course_id, semester, academic_year)
+);
+
+CREATE INDEX idx_enrollments_student ON enrollments(student_id);
+CREATE INDEX idx_enrollments_course ON enrollments(course_id);
+CREATE INDEX idx_enrollments_status ON enrollments(status);
+```
+
+**FacultySubjects Table**
+
+```sql
+CREATE TABLE faculty_subjects (
+    faculty_subject_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    faculty_id UUID NOT NULL REFERENCES faculty(faculty_id) ON DELETE CASCADE,
+    subject_id UUID NOT NULL REFERENCES subjects(subject_id) ON DELETE CASCADE,
+    academic_year VARCHAR(10) NOT NULL,
+    semester INTEGER NOT NULL,
+    section VARCHAR(10),
+    assigned_date DATE NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(faculty_id, subject_id, academic_year, semester, section)
+);
+
+CREATE INDEX idx_faculty_subjects_faculty ON faculty_subjects(faculty_id);
+CREATE INDEX idx_faculty_subjects_subject ON faculty_subjects(subject_id);
+```
+
+**Attendance Table**
+
+```sql
+CREATE TABLE attendance (
+    attendance_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    student_id UUID NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+    subject_id UUID NOT NULL REFERENCES subjects(subject_id) ON DELETE CASCADE,
+    faculty_id UUID NOT NULL REFERENCES faculty(faculty_id),
+    attendance_date DATE NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    remarks TEXT,
+    marked_by UUID REFERENCES users(user_id),
+    marked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(student_id, subject_id, attendance_date)
+);
+
+CREATE INDEX idx_attendance_student ON attendance(student_id);
+CREATE INDEX idx_attendance_subject ON attendance(subject_id);
+CREATE INDEX idx_attendance_date ON attendance(attendance_date);
+```
+
+**Exams Table**
+
+```sql
+CREATE TABLE exams (
+    exam_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    exam_name VARCHAR(200) NOT NULL,
+    exam_type VARCHAR(50) NOT NULL,
+    subject_id UUID NOT NULL REFERENCES subjects(subject_id) ON DELETE CASCADE,
+    academic_year VARCHAR(10) NOT NULL,
+    semester INTEGER NOT NULL,
+    exam_date DATE NOT NULL,
+    start_time TIME,
+    end_time TIME,
+    max_marks INTEGER NOT NULL,
+    passing_marks INTEGER NOT NULL,
+    weightage DECIMAL(5,2),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_exams_subject ON exams(subject_id);
+CREATE INDEX idx_exams_date ON exams(exam_date);
+```
+
+**ExamResults Table**
+
+```sql
+CREATE TABLE exam_results (
+    result_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    exam_id UUID NOT NULL REFERENCES exams(exam_id) ON DELETE CASCADE,
+    student_id UUID NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+    marks_obtained DECIMAL(5,2) NOT NULL,
+    grade VARCHAR(5),
+    is_absent BOOLEAN DEFAULT false,
+    remarks TEXT,
+    entered_by UUID REFERENCES users(user_id),
+    entered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(exam_id, student_id)
+);
+
+CREATE INDEX idx_exam_results_exam ON exam_results(exam_id);
+CREATE INDEX idx_exam_results_student ON exam_results(student_id);
+```
+
+**Certificates Table**
+
+```sql
+CREATE TABLE certificates (
+    certificate_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    student_id UUID NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+    certificate_type VARCHAR(50) NOT NULL,
+    certificate_number VARCHAR(100) UNIQUE NOT NULL,
+    issue_date DATE NOT NULL,
+    academic_year VARCHAR(10),
+    course_id UUID REFERENCES courses(course_id),
+    cgpa DECIMAL(4,2),
+    percentage DECIMAL(5,2),
+    file_path VARCHAR(500),
+    issued_by UUID REFERENCES users(user_id),
+    is_verified BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_certificates_student ON certificates(student_id);
+CREATE INDEX idx_certificates_number ON certificates(certificate_number);
+```
+
+#### **3. Fee & Finance Management Tables**
+
+**FeeStructures Table**
+
+```sql
+CREATE TABLE fee_structures (
+    fee_structure_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    course_id UUID NOT NULL REFERENCES courses(course_id) ON DELETE CASCADE,
+    academic_year VARCHAR(10) NOT NULL,
+    semester INTEGER NOT NULL,
+    fee_type VARCHAR(50) NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    description TEXT,
+    is_mandatory BOOLEAN DEFAULT true,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(course_id, academic_year, semester, fee_type)
+);
+
+CREATE INDEX idx_fee_structures_course ON fee_structures(course_id);
+CREATE INDEX idx_fee_structures_year ON fee_structures(academic_year);
+```
+
+**FeeRecords Table**
+
+```sql
+CREATE TABLE fee_records (
+    fee_record_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    student_id UUID NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+    fee_structure_id UUID NOT NULL REFERENCES fee_structures(fee_structure_id),
+    academic_year VARCHAR(10) NOT NULL,
+    semester INTEGER NOT NULL,
+    total_amount DECIMAL(10,2) NOT NULL,
+    paid_amount DECIMAL(10,2) DEFAULT 0,
+    balance_amount DECIMAL(10,2) NOT NULL,
+    due_date DATE NOT NULL,
+    status VARCHAR(20) DEFAULT 'Pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_fee_records_student ON fee_records(student_id);
+CREATE INDEX idx_fee_records_status ON fee_records(status);
+CREATE INDEX idx_fee_records_due_date ON fee_records(due_date);
+```
+
+**Payments Table**
+
+```sql
+CREATE TABLE payments (
+    payment_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    fee_record_id UUID NOT NULL REFERENCES fee_records(fee_record_id) ON DELETE CASCADE,
+    student_id UUID NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+    payment_date DATE NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    payment_method VARCHAR(50) NOT NULL,
+    transaction_id VARCHAR(200) UNIQUE,
+    gateway_response JSONB,
+    status VARCHAR(20) DEFAULT 'Pending',
+    receipt_number VARCHAR(100) UNIQUE,
+    remarks TEXT,
+    processed_by UUID REFERENCES users(user_id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_payments_fee_record ON payments(fee_record_id);
+CREATE INDEX idx_payments_student ON payments(student_id);
+CREATE INDEX idx_payments_transaction ON payments(transaction_id);
+CREATE INDEX idx_payments_date ON payments(payment_date);
+```
+
+### Database Triggers
+
+#### **1. Auto-Calculate Grade on Result Entry**
+
+```sql
+CREATE OR REPLACE FUNCTION calculate_grade()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.is_absent = false THEN
+        NEW.grade := CASE
+            WHEN NEW.marks_obtained >= 90 THEN 'A+'
+            WHEN NEW.marks_obtained >= 80 THEN 'A'
+            WHEN NEW.marks_obtained >= 70 THEN 'B+'
+            WHEN NEW.marks_obtained >= 60 THEN 'B'
+            WHEN NEW.marks_obtained >= 50 THEN 'C'
+            WHEN NEW.marks_obtained >= 40 THEN 'D'
+            ELSE 'F'
+        END;
+    ELSE
+        NEW.grade := 'AB';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_calculate_grade
+BEFORE INSERT OR UPDATE ON exam_results
+FOR EACH ROW
+EXECUTE FUNCTION calculate_grade();
+```
+
+#### **2. Auto-Create Fee Records on Enrollment**
+
+```sql
+CREATE OR REPLACE FUNCTION create_fee_record_on_enrollment()
+RETURNS TRIGGER AS $$
+DECLARE
+    fee_structure RECORD;
+    total_fees DECIMAL(10,2);
+BEGIN
+    -- Calculate total fees for the semester
+    SELECT SUM(amount) INTO total_fees
+    FROM fee_structures
+    WHERE course_id = NEW.course_id
+      AND academic_year = NEW.academic_year
+      AND semester = NEW.semester
+      AND is_active = true;
+
+    -- Create fee record
+    IF total_fees > 0 THEN
+        INSERT INTO fee_records (
+            student_id,
+            fee_structure_id,
+            academic_year,
+            semester,
+            total_amount,
+            balance_amount,
+            due_date,
+            status
+        )
+        SELECT
+            NEW.student_id,
+            fs.fee_structure_id,
+            NEW.academic_year,
+            NEW.semester,
+            fs.amount,
+            fs.amount,
+            CURRENT_DATE + INTERVAL '30 days',
+            'Pending'
+        FROM fee_structures fs
+        WHERE fs.course_id = NEW.course_id
+          AND fs.academic_year = NEW.academic_year
+          AND fs.semester = NEW.semester
+          AND fs.is_active = true;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_create_fee_on_enrollment
+AFTER INSERT ON enrollments
+FOR EACH ROW
+EXECUTE FUNCTION create_fee_record_on_enrollment();
+```
+
+#### **3. Update Fee Balance on Payment**
+
+```sql
+CREATE OR REPLACE FUNCTION update_fee_balance()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'Completed' THEN
+        UPDATE fee_records
+        SET
+            paid_amount = paid_amount + NEW.amount,
+            balance_amount = balance_amount - NEW.amount,
+            status = CASE
+                WHEN balance_amount - NEW.amount <= 0 THEN 'Paid'
+                ELSE 'Partial'
+            END,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE fee_record_id = NEW.fee_record_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_update_fee_balance
+AFTER INSERT OR UPDATE ON payments
+FOR EACH ROW
+EXECUTE FUNCTION update_fee_balance();
+```
+
+#### **4. Update Enrollment Status on Fee Payment**
+
+```sql
+CREATE OR REPLACE FUNCTION activate_enrollment_on_payment()
+RETURNS TRIGGER AS $$
+DECLARE
+    all_fees_paid BOOLEAN;
+BEGIN
+    -- Check if all fees are paid for this student's enrollment
+    SELECT NOT EXISTS (
+        SELECT 1 FROM fee_records
+        WHERE student_id = NEW.student_id
+          AND status IN ('Pending', 'Partial')
+    ) INTO all_fees_paid;
+
+    -- Activate enrollment if all fees are paid
+    IF all_fees_paid THEN
+        UPDATE students
+        SET enrollment_status = 'Active'
+        WHERE student_id = NEW.student_id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_activate_enrollment
+AFTER UPDATE ON fee_records
+FOR EACH ROW
+WHEN (NEW.status = 'Paid')
+EXECUTE FUNCTION activate_enrollment_on_payment();
+```
+
+#### **5. Auto-Generate Certificate on Course Completion**
+
+```sql
+CREATE OR REPLACE FUNCTION generate_certificate_on_completion()
+RETURNS TRIGGER AS $$
+DECLARE
+    student_record RECORD;
+    course_record RECORD;
+    total_subjects INTEGER;
+    passed_subjects INTEGER;
+    avg_percentage DECIMAL(5,2);
+    cert_number VARCHAR(100);
+BEGIN
+    -- Get student and course details
+    SELECT s.*, e.course_id, e.academic_year
+    INTO student_record
+    FROM students s
+    JOIN enrollments e ON s.student_id = e.student_id
+    WHERE s.student_id = NEW.student_id;
+
+    -- Count total and passed subjects
+    SELECT COUNT(*), COUNT(CASE WHEN er.grade NOT IN ('F', 'AB') THEN 1 END)
+    INTO total_subjects, passed_subjects
+    FROM exam_results er
+    JOIN exams ex ON er.exam_id = ex.exam_id
+    WHERE er.student_id = NEW.student_id
+      AND ex.academic_year = student_record.academic_year;
+
+    -- Check if all subjects passed
+    IF total_subjects > 0 AND total_subjects = passed_subjects THEN
+        -- Calculate average percentage
+        SELECT AVG((marks_obtained / e.max_marks) * 100)
+        INTO avg_percentage
+        FROM exam_results er
+        JOIN exams e ON er.exam_id = e.exam_id
+        WHERE er.student_id = NEW.student_id;
+
+        -- Generate certificate number
+        cert_number := 'CERT-' || TO_CHAR(CURRENT_DATE, 'YYYY') || '-' ||
+                       LPAD(nextval('certificate_seq')::TEXT, 6, '0');
+
+        -- Insert certificate
+        INSERT INTO certificates (
+            student_id,
+            certificate_type,
+            certificate_number,
+            issue_date,
+            academic_year,
+            course_id,
+            percentage
+        ) VALUES (
+            NEW.student_id,
+            'Course Completion',
+            cert_number,
+            CURRENT_DATE,
+            student_record.academic_year,
+            student_record.course_id,
+            avg_percentage
+        );
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create sequence for certificate numbering
+CREATE SEQUENCE IF NOT EXISTS certificate_seq START 1;
+
+CREATE TRIGGER trigger_generate_certificate
+AFTER INSERT OR UPDATE ON exam_results
+FOR EACH ROW
+EXECUTE FUNCTION generate_certificate_on_completion();
+```
+
+#### **6. Audit Trail Trigger**
+
+```sql
+CREATE OR REPLACE FUNCTION audit_trail()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO audit_logs (
+        user_id,
+        action,
+        entity_type,
+        entity_id,
+        old_values,
+        new_values
+    ) VALUES (
+        COALESCE(current_setting('app.current_user_id', true)::UUID, NULL),
+        TG_OP,
+        TG_TABLE_NAME,
+        COALESCE(NEW.student_id, NEW.user_id, OLD.student_id, OLD.user_id),
+        CASE WHEN TG_OP = 'DELETE' THEN row_to_json(OLD) ELSE NULL END,
+        CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN row_to_json(NEW) ELSE NULL END
+    );
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Apply to critical tables
+CREATE TRIGGER audit_users AFTER INSERT OR UPDATE OR DELETE ON users
+FOR EACH ROW EXECUTE FUNCTION audit_trail();
+
+CREATE TRIGGER audit_students AFTER INSERT OR UPDATE OR DELETE ON students
+FOR EACH ROW EXECUTE FUNCTION audit_trail();
+
+CREATE TRIGGER audit_payments AFTER INSERT OR UPDATE OR DELETE ON payments
+FOR EACH ROW EXECUTE FUNCTION audit_trail();
+```
+
+---
+
+## Proposed Changes
+
+### Backend (.NET 10 Web API)
+
+#### Solution Structure
+
+```
+EducationERP/
+├── src/
+│   ├── EducationERP.Domain/              # Domain Layer (No dependencies)
+│   │   ├── Entities/
+│   │   ├── ValueObjects/
+│   │   ├── Enums/
+│   │   ├── Events/
+│   │   ├── Exceptions/
+│   │   └── Specifications/
+│   │
+│   ├── EducationERP.Application/         # Application Layer
+│   │   ├── Common/
+│   │   │   ├── Interfaces/
+│   │   │   ├── DTOs/
+│   │   │   ├── Mappings/
+│   │   │   └── Validators/
+│   │   ├── Features/
+│   │   │   ├── Auth/
+│   │   │   ├── Students/
+│   │   │   ├── Faculty/
+│   │   │   ├── Courses/
+│   │   │   ├── Attendance/
+│   │   │   ├── Exams/
+│   │   │   └── Fees/
+│   │   └── Services/
+│   │
+│   ├── EducationERP.Infrastructure/      # Infrastructure Layer
+│   │   ├── Data/
+│   │   │   ├── Configurations/
+│   │   │   ├── Repositories/
+│   │   │   └── ApplicationDbContext.cs
+│   │   ├── Identity/
+│   │   ├── Services/
+│   │   │   ├── EmailService.cs
+│   │   │   ├── PaymentGatewayService.cs
+│   │   │   └── FileStorageService.cs
+│   │   └── BackgroundJobs/
+│   │
+│   └── EducationERP.API/                 # Presentation Layer
+│       ├── Controllers/
+│       ├── Middleware/
+│       ├── Filters/
+│       ├── Extensions/
+│       └── Program.cs
+│
+└── tests/
+    ├── EducationERP.Domain.Tests/
+    ├── EducationERP.Application.Tests/
+    └── EducationERP.API.Tests/
+```
+
+#### **[NEW] Domain Layer Components**
+
+**Base Entity**
+
+```csharp
+// EducationERP.Domain/Common/BaseEntity.cs
+public abstract class BaseEntity
+{
+    public Guid Id { get; protected set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+    public Guid? CreatedBy { get; set; }
+    public Guid? UpdatedBy { get; set; }
+}
+```
+
+**User Entity**
+
+```csharp
+// EducationERP.Domain/Entities/User.cs
+public class User : BaseEntity
+{
+    public string Email { get; private set; }
+    public string PasswordHash { get; private set; }
+    public string FirstName { get; private set; }
+    public string LastName { get; private set; }
+    public string? PhoneNumber { get; private set; }
+    public bool IsActive { get; private set; }
+    public bool IsEmailVerified { get; private set; }
+    public DateTime? LastLoginAt { get; private set; }
+
+    // Navigation properties
+    public ICollection<UserRole> UserRoles { get; private set; }
+    public Student? Student { get; private set; }
+    public Faculty? Faculty { get; private set; }
+    public Parent? Parent { get; private set; }
+
+    // Factory method
+    public static User Create(string email, string firstName, string lastName)
+    {
+        // Business rule: Email must be valid
+        if (!IsValidEmail(email))
+            throw new DomainException("Invalid email format");
+
+        return new User
+        {
+            Id = Guid.NewGuid(),
+            Email = email.ToLowerInvariant(),
+            FirstName = firstName,
+            LastName = lastName,
+            IsActive = true,
+            IsEmailVerified = false,
+            CreatedAt = DateTime.UtcNow
+        };
+    }
+
+    public void SetPassword(string passwordHash)
+    {
+        PasswordHash = passwordHash;
+    }
+
+    public void VerifyEmail()
+    {
+        IsEmailVerified = true;
+    }
+
+    public void RecordLogin()
+    {
+        LastLoginAt = DateTime.UtcNow;
+    }
+
+    private static bool IsValidEmail(string email)
+    {
+        return !string.IsNullOrWhiteSpace(email) &&
+               email.Contains('@') &&
+               email.Length <= 255;
+    }
+}
+```
+
+**Student Entity**
+
+```csharp
+// EducationERP.Domain/Entities/Student.cs
+public class Student : BaseEntity
+{
+    public Guid UserId { get; private set; }
+    public string AdmissionNumber { get; private set; }
+    public DateTime AdmissionDate { get; private set; }
+    public DateTime DateOfBirth { get; private set; }
+    public Gender Gender { get; private set; }
+    public string? BloodGroup { get; private set; }
+    public Address Address { get; private set; }
+    public EnrollmentStatus EnrollmentStatus { get; private set; }
+    public string AcademicYear { get; private set; }
+
+    // Navigation properties
+    public User User { get; private set; }
+    public ICollection<Enrollment> Enrollments { get; private set; }
+    public ICollection<Attendance> AttendanceRecords { get; private set; }
+    public ICollection<ExamResult> ExamResults { get; private set; }
+    public ICollection<FeeRecord> FeeRecords { get; private set; }
+
+    public static Student Create(
+        Guid userId,
+        string admissionNumber,
+        DateTime dateOfBirth,
+        Gender gender,
+        Address address,
+        string academicYear)
+    {
+        // Business rules
+        if (string.IsNullOrWhiteSpace(admissionNumber))
+            throw new DomainException("Admission number is required");
+
+        if (dateOfBirth >= DateTime.Today)
+            throw new DomainException("Date of birth must be in the past");
+
+        var age = DateTime.Today.Year - dateOfBirth.Year;
+        if (age < 5 || age > 100)
+            throw new DomainException("Invalid age for admission");
+
+        return new Student
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            AdmissionNumber = admissionNumber,
+            AdmissionDate = DateTime.UtcNow,
+            DateOfBirth = dateOfBirth,
+            Gender = gender,
+            Address = address,
+            EnrollmentStatus = EnrollmentStatus.Pending,
+            AcademicYear = academicYear,
+            CreatedAt = DateTime.UtcNow
+        };
+    }
+
+    public void Activate()
+    {
+        EnrollmentStatus = EnrollmentStatus.Active;
+    }
+
+    public void Suspend()
+    {
+        EnrollmentStatus = EnrollmentStatus.Suspended;
+    }
+}
+```
+
+#### **[NEW] Application Layer - CQRS Pattern**
+
+**Authentication Commands**
+
+```csharp
+// EducationERP.Application/Features/Auth/Commands/LoginCommand.cs
+public record LoginCommand(string Email, string Password) : IRequest<LoginResponse>;
+
+public class LoginCommandHandler : IRequestHandler<LoginCommand, LoginResponse>
+{
+    private readonly IUserRepository _userRepository;
+    private readonly IPasswordHasher _passwordHasher;
+    private readonly IJwtTokenGenerator _tokenGenerator;
+    private readonly IRefreshTokenRepository _refreshTokenRepository;
+
+    public async Task<LoginResponse> Handle(LoginCommand request, CancellationToken ct)
+    {
+        // 1. Find user
+        var user = await _userRepository.GetByEmailAsync(request.Email, ct);
+        if (user == null)
+            throw new UnauthorizedException("Invalid credentials");
+
+        // 2. Verify password
+        if (!_passwordHasher.Verify(request.Password, user.PasswordHash))
+            throw new UnauthorizedException("Invalid credentials");
+
+        // 3. Check if active
+        if (!user.IsActive)
+            throw new UnauthorizedException("Account is inactive");
+
+        // 4. Generate tokens
+        var accessToken = _tokenGenerator.GenerateAccessToken(user);
+        var refreshToken = _tokenGenerator.GenerateRefreshToken();
+
+        // 5. Save refresh token
+        await _refreshTokenRepository.SaveAsync(user.Id, refreshToken, ct);
+
+        // 6. Record login
+        user.RecordLogin();
+        await _userRepository.UpdateAsync(user, ct);
+
+        return new LoginResponse
+        {
+            AccessToken = accessToken,
+            RefreshToken = refreshToken,
+            ExpiresIn = 3600,
+            User = new UserDto
+            {
+                Id = user.Id,
+                Email = user.Email,
+                FirstName = user.FirstName,
+                LastName = user.LastName,
+                Roles = user.UserRoles.Select(ur => ur.Role.RoleName).ToList()
+            }
+        };
+    }
+}
+```
+
+**Student Queries**
+
+```csharp
+// EducationERP.Application/Features/Students/Queries/GetStudentByIdQuery.cs
+public record GetStudentByIdQuery(Guid StudentId) : IRequest<StudentDetailDto>;
+
+public class GetStudentByIdQueryHandler : IRequestHandler<GetStudentByIdQuery, StudentDetailDto>
+{
+    private readonly IStudentRepository _repository;
+    private readonly IMapper _mapper;
+
+    public async Task<StudentDetailDto> Handle(GetStudentByIdQuery request, CancellationToken ct)
+    {
+        var student = await _repository.GetByIdWithDetailsAsync(request.StudentId, ct);
+
+        if (student == null)
+            throw new NotFoundException("Student not found");
+
+        return _mapper.Map<StudentDetailDto>(student);
+    }
+}
+```
+
+#### **[NEW] API Controllers**
+
+**AuthController**
+
+```csharp
+// EducationERP.API/Controllers/AuthController.cs
+[ApiController]
+[Route("api/[controller]")]
+public class AuthController : ControllerBase
+{
+    private readonly IMediator _mediator;
+
+    [HttpPost("login")]
+    [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> Login([FromBody] LoginCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return Ok(result);
+    }
+
+    [HttpPost("refresh")]
+    [ProducesResponseType(typeof(RefreshTokenResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return Ok(result);
+    }
+
+    [HttpPost("logout")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> Logout()
+    {
+        await _mediator.Send(new LogoutCommand(User.GetUserId()));
+        return NoContent();
+    }
+}
+```
+
+**StudentsController**
+
+```csharp
+// EducationERP.API/Controllers/StudentsController.cs
+[ApiController]
+[Route("api/[controller]")]
+[Authorize]
+public class StudentsController : ControllerBase
+{
+    private readonly IMediator _mediator;
+
+    [HttpGet]
+    [RequirePermission("students.read")]
+    [ProducesResponseType(typeof(PagedResult<StudentDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetStudents([FromQuery] GetStudentsQuery query)
+    {
+        var result = await _mediator.Send(query);
+        return Ok(result);
+    }
+
+    [HttpGet("{id}")]
+    [RequirePermission("students.read")]
+    [ProducesResponseType(typeof(StudentDetailDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetStudent(Guid id)
+    {
+        var result = await _mediator.Send(new GetStudentByIdQuery(id));
+        return Ok(result);
+    }
+
+    [HttpPost]
+    [RequirePermission("students.create")]
+    [ProducesResponseType(typeof(StudentDto), StatusCodes.Status201Created)]
+    public async Task<IActionResult> CreateStudent([FromBody] CreateStudentCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return CreatedAtAction(nameof(GetStudent), new { id = result.Id }, result);
+    }
+
+    [HttpPut("{id}")]
+    [RequirePermission("students.update")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> UpdateStudent(Guid id, [FromBody] UpdateStudentCommand command)
+    {
+        if (id != command.StudentId)
+            return BadRequest();
+
+        await _mediator.Send(command);
+        return NoContent();
+    }
+}
+```
+
+#### **[NEW] Infrastructure - JWT Configuration**
+
+```csharp
+// EducationERP.Infrastructure/Identity/JwtTokenGenerator.cs
+public class JwtTokenGenerator : IJwtTokenGenerator
+{
+    private readonly JwtSettings _jwtSettings;
+
+    public string GenerateAccessToken(User user)
+    {
+        var claims = new List<Claim>
+        {
+            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new(JwtRegisteredClaimNames.Email, user.Email),
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new("firstName", user.FirstName),
+            new("lastName", user.LastName)
+        };
+
+        // Add roles
+        foreach (var userRole in user.UserRoles)
+        {
+            claims.Add(new Claim(ClaimTypes.Role, userRole.Role.RoleName));
+        }
+
+        // Add permissions
+        var permissions = user.UserRoles
+            .SelectMany(ur => ur.Role.RolePermissions)
+            .Select(rp => rp.Permission.PermissionName)
+            .Distinct();
+
+        foreach (var permission in permissions)
+        {
+            claims.Add(new Claim("permission", permission));
+        }
+
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.Secret));
+        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+        var token = new JwtSecurityToken(
+            issuer: _jwtSettings.Issuer,
+            audience: _jwtSettings.Audience,
+            claims: claims,
+            expires: DateTime.UtcNow.AddMinutes(_jwtSettings.ExpiryMinutes),
+            signingCredentials: credentials
+        );
+
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+}
+```
+
+### Frontend (Angular)
+
+#### Project Structure
+
+```
+education-erp-ui/
+├── src/
+│   ├── app/
+│   │   ├── core/                      # Singleton services, guards, interceptors
+│   │   │   ├── guards/
+│   │   │   │   ├── auth.guard.ts
+│   │   │   │   └── role.guard.ts
+│   │   │   ├── interceptors/
+│   │   │   │   ├── auth.interceptor.ts
+│   │   │   │   └── error.interceptor.ts
+│   │   │   ├── services/
+│   │   │   │   ├── auth.service.ts
+│   │   │   │   └── notification.service.ts
+│   │   │   └── models/
+│   │   │
+│   │   ├── shared/                    # Shared components, directives, pipes
+│   │   │   ├── components/
+│   │   │   ├── directives/
+│   │   │   ├── pipes/
+│   │   │   └── material.module.ts
+│   │   │
+│   │   ├── features/                  # Feature modules (lazy loaded)
+│   │   │   ├── auth/
+│   │   │   │   ├── login/
+│   │   │   │   └── auth-routing.module.ts
+│   │   │   ├── admin/
+│   │   │   │   ├── dashboard/
+│   │   │   │   ├── students/
+│   │   │   │   ├── faculty/
+│   │   │   │   └── admin-routing.module.ts
+│   │   │   ├── faculty/
+│   │   │   │   ├── dashboard/
+│   │   │   │   ├── attendance/
+│   │   │   │   └── faculty-routing.module.ts
+│   │   │   ├── student/
+│   │   │   │   ├── dashboard/
+│   │   │   │   ├── courses/
+│   │   │   │   └── student-routing.module.ts
+│   │   │   └── parent/
+│   │   │
+│   │   ├── app-routing.module.ts
+│   │   └── app.component.ts
+│   │
+│   ├── environments/
+│   │   ├── environment.ts
+│   │   └── environment.prod.ts
+│   └── styles.scss
+```
+
+#### **[NEW] Auth Guard**
+
+```typescript
+// src/app/core/guards/auth.guard.ts
+@Injectable({ providedIn: "root" })
+export class AuthGuard implements CanActivate {
+  constructor(private authService: AuthService, private router: Router) {}
+
+  canActivate(route: ActivatedRouteSnapshot): boolean {
+    if (this.authService.isAuthenticated()) {
+      // Check role-based access
+      const requiredRoles = route.data["roles"] as string[];
+      if (requiredRoles && !this.authService.hasAnyRole(requiredRoles)) {
+        this.router.navigate(["/unauthorized"]);
+        return false;
+      }
+      return true;
+    }
+
+    this.router.navigate(["/auth/login"]);
+    return false;
+  }
+}
+```
+
+#### **[NEW] Auth Service**
+
+```typescript
+// src/app/core/services/auth.service.ts
+@Injectable({ providedIn: "root" })
+export class AuthService {
+  private currentUserSubject = new BehaviorSubject<User | null>(null);
+  public currentUser$ = this.currentUserSubject.asObservable();
+
+  constructor(private http: HttpClient) {
+    this.loadUserFromStorage();
+  }
+
+  login(email: string, password: string): Observable<LoginResponse> {
+    return this.http
+      .post<LoginResponse>("/api/auth/login", { email, password })
+      .pipe(
+        tap((response) => {
+          this.setSession(response);
+          this.currentUserSubject.next(response.user);
+        })
+      );
+  }
+
+  logout(): void {
+    this.http.post("/api/auth/logout", {}).subscribe();
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
+    this.currentUserSubject.next(null);
+    this.router.navigate(["/auth/login"]);
+  }
+
+  isAuthenticated(): boolean {
+    const token = localStorage.getItem("access_token");
+    return !!token && !this.isTokenExpired(token);
+  }
+
+  hasRole(role: string): boolean {
+    return this.currentUserSubject.value?.roles.includes(role) ?? false;
+  }
+
+  hasAnyRole(roles: string[]): boolean {
+    return roles.some((role) => this.hasRole(role));
+  }
+
+  private setSession(authResult: LoginResponse): void {
+    localStorage.setItem("access_token", authResult.accessToken);
+    localStorage.setItem("refresh_token", authResult.refreshToken);
+  }
+}
+```
+
+#### **[NEW] Routing Configuration**
+
+```typescript
+// src/app/app-routing.module.ts
+const routes: Routes = [
+  {
+    path: "auth",
+    loadChildren: () =>
+      import("./features/auth/auth.module").then((m) => m.AuthModule),
+  },
+  {
+    path: "admin",
+    loadChildren: () =>
+      import("./features/admin/admin.module").then((m) => m.AdminModule),
+    canActivate: [AuthGuard],
+    data: { roles: ["Admin"] },
+  },
+  {
+    path: "faculty",
+    loadChildren: () =>
+      import("./features/faculty/faculty.module").then((m) => m.FacultyModule),
+    canActivate: [AuthGuard],
+    data: { roles: ["Faculty"] },
+  },
+  {
+    path: "student",
+    loadChildren: () =>
+      import("./features/student/student.module").then((m) => m.StudentModule),
+    canActivate: [AuthGuard],
+    data: { roles: ["Student"] },
+  },
+  {
+    path: "parent",
+    loadChildren: () =>
+      import("./features/parent/parent.module").then((m) => m.ParentModule),
+    canActivate: [AuthGuard],
+    data: { roles: ["Parent"] },
+  },
+  { path: "", redirectTo: "/auth/login", pathMatch: "full" },
+];
+```
+
+---
+
+## Verification Plan
+
+### Automated Tests
+
+1. **Database Setup**
+
+   ```bash
+   # Create database
+   psql -U postgres -c "CREATE DATABASE education_erp_dev;"
+
+   # Run migrations
+   dotnet ef database update --project src/EducationERP.Infrastructure
+
+   # Verify triggers
+   psql -U postgres -d education_erp_dev -c "\df"
+   ```
+
+2. **Backend API Tests**
+
+   ```bash
+   # Run unit tests
+   dotnet test tests/EducationERP.Domain.Tests
+   dotnet test tests/EducationERP.Application.Tests
+
+   # Run integration tests
+   dotnet test tests/EducationERP.API.Tests
+
+   # Test API endpoints with Swagger
+   dotnet run --project src/EducationERP.API
+   # Navigate to https://localhost:5001/swagger
+   ```
+
+3. **Frontend Tests**
+
+   ```bash
+   # Run Angular tests
+   ng test
+
+   # E2E tests
+   ng e2e
+   ```
+
+### Manual Verification
+
+1. **Authentication Flow**
+
+   - Test login with valid/invalid credentials
+   - Verify JWT token generation
+   - Test refresh token mechanism
+   - Verify role-based access control
+
+2. **Automated Workflows**
+
+   - Create student enrollment → Verify fee records created
+   - Process payment → Verify fee balance updated
+   - Complete all exams → Verify certificate generated
+   - Mark attendance → Verify eligibility calculation
+
+3. **Security Testing**
+
+   - Test unauthorized access attempts
+   - Verify input validation
+   - Test SQL injection prevention
+   - Verify audit logging
+
+4. **Performance Testing**
+   - Test with 1000+ student records
+   - Verify pagination performance
+   - Test concurrent user access
+
+---
+
+## Next Steps
+
+This plan provides a comprehensive foundation for the Education ERP system. The implementation will proceed module-by-module with:
+
+1. **Phase 1**: Core architecture setup + Authentication module
+2. **Phase 2**: Academic Management module
+3. **Phase 3**: Fee & Finance module
+4. **Phase 4**: Frontend dashboards
+5. **Phase 5**: Reporting & Analytics
+6. **Phase 6**: Integration & Testing
+
+Each phase will include complete backend implementation, database setup, and frontend UI before moving to the next module.
