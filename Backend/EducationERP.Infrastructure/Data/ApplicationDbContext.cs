@@ -1,3 +1,4 @@
+using EducationERP.Application.Common.Interfaces;
 using EducationERP.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using System.Reflection;
@@ -7,7 +8,7 @@ namespace EducationERP.Infrastructure.Data;
 /// <summary>
 /// Application database context for Education ERP
 /// </summary>
-public class ApplicationDbContext : DbContext
+public class ApplicationDbContext : DbContext, IApplicationDbContext
 {
     public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
         : base(options)
@@ -24,7 +25,7 @@ public class ApplicationDbContext : DbContext
 
     // Academic Entities
     public DbSet<Student> Students => Set<Student>();
-    public DbSet<Faculty> Faculty => Set<Faculty>();
+    public DbSet<Faculty> Faculties => Set<Faculty>();
     public DbSet<Parent> Parents => Set<Parent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

@@ -1,0 +1,56 @@
+<div class="login-container">
+  <div class="login-card">
+    <div class="login-header">
+      <h1>Education ERP</h1>
+      <p>Sign in to your account</p>
+    </div>
+
+    <form (ngSubmit)="onSubmit()" #loginForm="ngForm">
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input
+          type="email"
+          id="email"
+          name="email"
+          [(ngModel)]="credentials.email"
+          required
+          email
+          placeholder="admin@educationerp.com"
+          [disabled]="isLoading"
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input
+          type="password"
+          id="password"
+          name="password"
+          [(ngModel)]="credentials.password"
+          required
+          placeholder="Enter your password"
+          [disabled]="isLoading"
+        />
+      </div>
+
+      <div class="error-message" *ngIf="errorMessage">
+        {{ errorMessage }}
+      </div>
+
+      <button
+        type="submit"
+        class="btn-primary"
+        [disabled]="!loginForm.valid || isLoading"
+      >
+        <span *ngIf="!isLoading">Sign In</span>
+        <span *ngIf="isLoading">Signing in...</span>
+      </button>
+    </form>
+
+    <div class="demo-credentials">
+      <p><strong>Demo Credentials:</strong></p>
+      <p>Email: admin&#64;educationerp.com</p>
+      <p>Password: Admin&#64;123</p>
+    </div>
+  </div>
+</div>

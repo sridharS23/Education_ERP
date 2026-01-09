@@ -1,0 +1,65 @@
+<div class="dashboard-container">
+  <header class="dashboard-header">
+    <div class="header-content">
+      <h1>Education ERP Dashboard</h1>
+      <div class="user-info">
+        <span>Welcome, {{ (currentUser$ | async)?.firstName }} {{ (currentUser$ | async)?.lastName }}</span>
+        <button class="btn-theme" (click)="toggleTheme()">
+          {{ (isDarkMode$ | async) ? '☀️ Light' : '🌙 Dark' }}
+        </button>
+        <button class="btn-logout" (click)="logout()">Logout</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="dashboard-content">
+    <div class="stats-grid">
+      <div class="stat-card" (click)="navigateTo('/students')">
+        <div class="stat-icon students">👨‍🎓</div>
+        <h3>Students</h3>
+        <p>Manage student records</p>
+      </div>
+
+      <div class="stat-card" (click)="navigateTo('/faculty')">
+        <div class="stat-icon faculty">👨‍🏫</div>
+        <h3>Faculty</h3>
+        <p>Manage faculty members</p>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon courses">📚</div>
+        <h3>Courses</h3>
+        <p>Coming soon...</p>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon attendance">📊</div>
+        <h3>Attendance</h3>
+        <p>Coming soon...</p>
+      </div>
+    </div>
+
+    <div class="welcome-section">
+      <h2>🎉 Welcome to Education ERP!</h2>
+      <p>Your comprehensive education management system is now running.</p>
+      <div class="features">
+        <div class="feature">
+          <span class="check">✓</span>
+          <span>Backend API running on https://localhost:5001</span>
+        </div>
+        <div class="feature">
+          <span class="check">✓</span>
+          <span>JWT Authentication enabled</span>
+        </div>
+        <div class="feature">
+          <span class="check">✓</span>
+          <span>Role-based access control</span>
+        </div>
+        <div class="feature">
+          <span class="check">✓</span>
+          <span>Student & Faculty management ready</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,52 @@
+/* Global Styles */
+:root {
+  /* Brand Colors - Light Mode */
+  --primary-color: #1D4ED8;   /* Royal Blue */
+  --secondary-color: #F3F4F6; /* Light Gray */
+  --accent-color: #10B981;    /* Emerald Green */
+  
+  /* Gradients */
+  --primary-gradient: linear-gradient(135deg, var(--primary-color) 0%, #1e40af 100%);
+  --bg-gradient: linear-gradient(135deg, #F3F4F6 0%, #e5e7eb 100%);
+  
+  /* Text Colors */
+  --text-main: #1f2937;
+  --text-muted: #6b7280;
+  --text-light: #ffffff;
+  
+  /* UI Elements */
+  --card-bg: #ffffff;
+  --input-bg: #ffffff;
+  --input-border: #e5e7eb;
+  --border-radius-lg: 16px;
+  --border-radius-md: 8px;
+  --shadow-card: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-card-hover: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* Dark Mode Variables */
+body.dark-mode {
+  /* Brand Colors - Dark Mode */
+  --primary-color: #3b82f6;   /* Lighter Blue for dark mode */
+  --secondary-color: #1f2937; /* Dark Gray */
+  --accent-color: #34d399;    /* Lighter Green */
+  
+  /* Gradients */
+  --primary-gradient: linear-gradient(135deg, #1e40af 0%, #1e3a8a 100%);
+  --bg-gradient: linear-gradient(135deg, #111827 0%, #1f2937 100%);
+  
+  /* Text Colors */
+  --text-main: #f3f4f6;
+  --text-muted: #9ca3af;
+  --text-light: #ffffff;
+  
+  /* UI Elements */
+  --card-bg: #1f2937;
+  --input-bg: #374151;
+  --input-border: #4b5563;
+  --shadow-card: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+  --shadow-card-hover: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+}
+
+html, body { height: 100%; }
+body { margin: 0; font-family: 'Inter', Roboto, "Helvetica Neue", sans-serif; }
